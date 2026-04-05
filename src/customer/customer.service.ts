@@ -1,89 +1,94 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Booking } from './entities/booking.entity';
+import { Room } from './entities/room.entity';
+import { Review } from './entities/review.entity';
+import { CreateReviewDto } from './dto/create-review.dto';
 
 @Injectable()
 export class CustomerService {
-  
-  private rooms = [
-    { id: 101, name: 'Deluxe Room', price: 3000 },
-    { id: 201, name: 'Suite Room', price: 5000 },
-    { id: 301, name: 'Single Room', price: 1500 },
-    { id: 401, name: 'Single AC Room', price: 1500 },
-  ];
+  constructor(
+    @InjectRepository(Booking)
+    private readonly bookingRepository: Repository<Booking>,
+    
+    @InjectRepository(Room)
+    private readonly roomRepository: Repository<Room>,
 
-  
-  private bookings: any[] = [];
+    @InjectRepository(Review)
+    private readonly reviewRepository: Repository<Review>,
+  ) {}
 
-  
-  getRoomsByExactPrice(price?: number) {
-  if (price !== undefined) {
-    const filtered = this.rooms.filter(room => room.price === price);
-    return { success: true, data: filtered };
+  // --- Rooms Section ---
+
+  async createRoom(dto: { name: string; price: number }) {
+    const newRoom = this.roomRepository.create(dto);
+    const savedRoom = await this.roomRepository.save(newRoom);
+    return { success: true, message: 'Room created successfully', data: savedRoom };
   }
-  return { success: true, data: this.rooms };
-}
 
-  
-  getRoomById(id: number) {
-    const room = this.rooms.find(r => r.id === id);
+  async getRoomsByExactPrice(price?: number) {
+    if (price !== undefined) {
+      const filtered = await this.roomRepository.find({ where: { price } });
+      return { success: true, data: filtered };
+    }
+    const allRooms = await this.roomRepository.find();
+    return { success: true, data: allRooms };
+  }
+
+  async getRoomById(id: number) {
+    const room = await this.roomRepository.findOne({ where: { id } });
     return room 
       ? { success: true, data: room }
       : { success: false, message: 'Room not found' };
   }
 
- 
-  createBooking(dto: any) {
-    const booking = { id: Date.now(), ...dto, status: 'Booked' };
-    this.bookings.push(booking);
+  // --- Booking Section ---
+
+  async createBooking(dto: any) {
+    const booking = this.bookingRepository.create({ ...dto, status: 'Booked' });
+    const savedBooking = await this.bookingRepository.save(booking);
     return { 
-      success: true, message: 'Room booked successfully',
-       data: booking };
+      success: true, 
+      message: 'Room booked successfully',
+      data: savedBooking 
+    };
   }
 
- 
-  updateBooking(id: number, dto: any) {
-    const booking = this.bookings.find(b => b.id === id);
+  async updateBooking(id: number, dto: any) {
+    const booking = await this.bookingRepository.findOne({ where: { id } });
     if (!booking) return { success: false, message: 'Booking not found' };
 
     Object.assign(booking, dto); 
+    await this.bookingRepository.save(booking);
     return { success: true, message: 'Booking updated', data: booking };
   }
 
-  
-  cancelBooking(id: number) {
-    this.bookings = this.bookings.filter(b => b.id !== id);
+  async cancelBooking(id: number) {
+    const result = await this.bookingRepository.delete(id);
+    if (result.affected === 0) return { success: false, message: 'Booking not found' };
     return { success: true, message: 'Booking cancelled' };
   }
 
-  
-  getBookingHistory() {
-  if (this.bookings.length === 0) {
-    return { success: false, message: 'No bookings found' };
-  }
-  return { success: true, data: this.bookings };
-}
-
-  
-  makePayment(id: number) {
-  const booking = this.bookings.find(b => b.id === id);
-
-  if (!booking) {
-    return { success: false, message: 'Booking not found' };
+  async getBookingHistory() {
+    const allBookings = await this.bookingRepository.find();
+    return { success: true, data: allBookings };
   }
 
-  if (booking.status === 'Paid') {
-    return { success: false, message: 'Already paid' };
+  // --- Payment & Review Section ---
+
+  async makePayment(id: number) {
+    const booking = await this.bookingRepository.findOne({ where: { id } });
+    if (!booking) return { success: false, message: 'Booking not found' };
+
+    booking.status = 'Paid';
+    await this.bookingRepository.save(booking);
+    return { success: true, message: 'Payment Successful' };
   }
 
-  booking.status = 'Paid';
-
-  return {
-    success: true,
-    message: 'Payment successful',
-  };
-}
-
- 
-  addReview(dto: any) {
-    return { success: true, message: 'Review Added', data: dto };
+  async createReview(dto: CreateReviewDto) {
+    const newReview = this.reviewRepository.create(dto);
+    const savedReview = await this.reviewRepository.save(newReview);
+    return { success: true, message: 'Review Added Successfully', data: savedReview };
   }
 }

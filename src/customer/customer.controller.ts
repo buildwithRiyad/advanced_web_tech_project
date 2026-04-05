@@ -1,5 +1,16 @@
 import {
-  Controller, Get, Post, Put, Delete, Patch, Param, Body, Query, ParseIntPipe,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Patch,
+  Param,
+  Body,
+  Query,
+  ParseIntPipe,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 
 import { CustomerService } from './customer.service';
@@ -13,11 +24,17 @@ export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
 
  
-@Get('rooms')
-getRooms(@Query('price') price?: string) {
-  const parsedPrice = price ? parseInt(price) : undefined;
-  return this.customerService.getRoomsByExactPrice(parsedPrice);
-}
+  @Post('create-room')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  createRoom(@Body() roomDto: { name: string; price: number }) {
+    return this.customerService.createRoom(roomDto);
+  }
+
+  @Get('rooms')
+  getRooms(@Query('price') price?: string) {
+    const parsedPrice = price ? parseInt(price) : undefined;
+    return this.customerService.getRoomsByExactPrice(parsedPrice);
+  }
 
   @Get('rooms/:id')
   getRoom(@Param('id', ParseIntPipe) id: number) {
@@ -26,11 +43,14 @@ getRooms(@Query('price') price?: string) {
 
   
   @Post('bookings')
+  @UsePipes(new ValidationPipe({ transform: true }))
   bookRoom(@Body() dto: CreateBookingDto) {
     return this.customerService.createBooking(dto);
   }
 
+ 
   @Put('bookings/:id')
+  @UsePipes(new ValidationPipe({ transform: true }))
   editBooking(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateBookingDto,
@@ -38,10 +58,12 @@ getRooms(@Query('price') price?: string) {
     return this.customerService.updateBooking(id, dto);
   }
 
+
   @Delete('bookings/:id')
   cancelBooking(@Param('id', ParseIntPipe) id: number) {
     return this.customerService.cancelBooking(id);
   }
+
 
   @Get('bookings')
   bookingHistory() {
@@ -55,24 +77,19 @@ getRooms(@Query('price') price?: string) {
 
 
   @Post('reviews')
-  addReview(@Body() dto: CreateReviewDto) {
-    return this.customerService.addReview(dto);
+  @UsePipes(new ValidationPipe({ transform: true }))
+  createReview(@Body() reviewDto: CreateReviewDto) {
+    return this.customerService.createReview(reviewDto);
   }
 
   
- @Post('validation-check')
-validateField(@Body() dto: PartialBookingDto) {
-  return {
-    success: true,
-    message: 'Validation successful',
-    data: dto,
-  };
+  @Post('validation-check')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  validateField(@Body() dto: PartialBookingDto) {
+    return {
+      success: true,
+      message: 'Validation successful',
+      data: dto,
+    };
+  }
 }
-}
-
-
-
-
-
-
-

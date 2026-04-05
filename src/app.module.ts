@@ -1,13 +1,20 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { CustomerModule } from './customer/customer.module';
-// Spelling check: 'customer' folder-er namer sathe milte hobe
-import { CustomerService } from './customer/customer.service'; 
 
 @Module({
-  imports: [CustomerModule],
-  controllers: [AppController],
-  providers: [AppService], // Ekhane CustomerService pathanor dorkar nei jodi module-e thake
+  imports: [
+  TypeOrmModule.forRoot({
+    type: 'postgres',
+    host: 'localhost',
+    port: 5432,
+    username: 'postgres',
+    password: 'student', 
+    database: 'hotel_db',
+    autoLoadEntities: true,
+    synchronize: true, // এটি অবশ্যই থাকতে হবে
+  }),
+  CustomerModule,
+],
 })
 export class AppModule {}
