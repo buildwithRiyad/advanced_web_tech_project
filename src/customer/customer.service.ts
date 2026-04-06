@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { Booking } from './entities/booking.entity';
 import { Room } from './entities/room.entity';
 import { Review } from './entities/review.entity';
@@ -28,25 +28,61 @@ export class CustomerService {
   }
 
   async getRoomsByExactPrice(price?: number) {
-    if (price !== undefined) {
-      const filtered = await this.roomRepository.find({ where: { price } });
-      return { success: true, data: filtered };
-    }
-    const allRooms = await this.roomRepository.find();
-    return { success: true, data: allRooms };
+    const whereCondition = price !== undefined ? { price } : {};
+    const filtered = await this.roomRepository.find({ 
+      where: whereCondition,
+      relations: ['bookings'] 
+    });
+    return { success: true, data: filtered };
   }
 
   async getRoomById(id: number) {
-    const room = await this.roomRepository.findOne({ where: { id } });
+    const room = await this.roomRepository.findOne({ 
+      where: { id },
+      relations: ['bookings', 'bookings.review'] // রুমের ভেতর বুকিং এবং বুকিংয়ের রিভিউও দেখা যাবে
+    });
+    
     return room 
       ? { success: true, data: room }
       : { success: false, message: 'Room not found' };
   }
 
-  // --- Booking Section ---
+  // --- Bookings Section ---
 
   async createBooking(dto: any) {
-    const booking = this.bookingRepository.create({ ...dto, status: 'Booked' });
+    const { roomId, checkInDate, checkOutDate, ...bookingDetails } = dto;
+    
+    // ১. চেক করা যে রুমটি ডাটাবেসে আছে কি না
+    const room = await this.roomRepository.findOne({ where: { id: roomId } });
+    if (!room) return { success: false, message: 'Room not found' };
+
+    // ২. ডাবল বুকিং চেক (Date Overlap Validation)
+    // এটি চেক করবে ওই রুমে ওই সময়ে অন্য কোনো বুকিং 'Booked' বা 'Paid' অবস্থায় আছে কি না
+    const existingBooking = await this.bookingRepository.findOne({
+      where: {
+        room: { id: roomId },
+        status: 'Booked', // অথবা 'Paid'
+        checkInDate: LessThanOrEqual(checkOutDate),
+        checkOutDate: MoreThanOrEqual(checkInDate),
+      },
+    });
+
+    if (existingBooking) {
+      return { 
+        success: false, 
+        message: 'Sorry, this room is already booked for the selected dates!' 
+      };
+    }
+
+    // ৩. বুকিং তৈরি করা
+    const booking = this.bookingRepository.create({ 
+      ...bookingDetails, 
+      checkInDate,
+      checkOutDate,
+      room: room, 
+      status: 'Booked' 
+    });
+
     const savedBooking = await this.bookingRepository.save(booking);
     return { 
       success: true, 
@@ -65,17 +101,19 @@ export class CustomerService {
   }
 
   async cancelBooking(id: number) {
+    // সরাসরি ডিলিট করলে রিলেটেড রিভিউ CASCADE ডিলিট হবে (এনটিটি কনফিগ অনুযায়ী)
     const result = await this.bookingRepository.delete(id);
     if (result.affected === 0) return { success: false, message: 'Booking not found' };
-    return { success: true, message: 'Booking cancelled' };
+    return { success: true, message: 'Booking deleted successfully' };
   }
 
   async getBookingHistory() {
-    const allBookings = await this.bookingRepository.find();
+    // বুকিংয়ের সাথে রুম এবং রিভিউ দুটোই দেখার জন্য রিলেশন লোড করা হয়েছে
+    const allBookings = await this.bookingRepository.find({ 
+      relations: ['room', 'review'] 
+    });
     return { success: true, data: allBookings };
   }
-
-  // --- Payment & Review Section ---
 
   async makePayment(id: number) {
     const booking = await this.bookingRepository.findOne({ where: { id } });
@@ -86,9 +124,30 @@ export class CustomerService {
     return { success: true, message: 'Payment Successful' };
   }
 
+  // --- Reviews Section ---
+
   async createReview(dto: CreateReviewDto) {
-    const newReview = this.reviewRepository.create(dto);
+    const { bookingId, ...reviewData } = dto;
+
+    // বুকিং চেক করা
+    const booking = await this.bookingRepository.findOne({ 
+      where: { id: bookingId },
+      relations: ['review'] // আগে রিভিউ আছে কি না দেখার জন্য
+    });
+
+    if (!booking) return { success: false, message: 'Booking not found' };
+
+    // যেহেতু One-to-One, তাই চেক করা যে অলরেডি রিভিউ দেওয়া হয়েছে কি না mehedi shakib
+    if (booking.review) {
+      return { success: false, message: 'A review already exists for this booking!' };
+    }
+
+    const newReview = this.reviewRepository.create({
+      ...reviewData,
+      booking: booking,
+    });
+
     const savedReview = await this.reviewRepository.save(newReview);
-    return { success: true, message: 'Review Added Successfully', data: savedReview };
+    return { success: true, message: 'Review added successfully', data: savedReview };
   }
 }
