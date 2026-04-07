@@ -2,94 +2,87 @@ import {
   Controller,
   Get,
   Post,
-  Put,
   Delete,
   Patch,
+  Put, 
   Param,
   Body,
   Query,
   ParseIntPipe,
-  UsePipes,
-  ValidationPipe,
+  UseGuards,
 } from '@nestjs/common';
-
+import { AuthGuard } from '@nestjs/passport';
 import { CustomerService } from './customer.service';
+import { AuthService } from '../auth/auth.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
-import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CreateReviewDto } from './dto/create-review.dto';
-import { PartialBookingDto } from './dto/partial-booking.dto';
+import { UpdateBookingDto } from './dto/update-booking.dto';
 
 @Controller('customer')
 export class CustomerController {
-  constructor(private readonly customerService: CustomerService) {}
+  constructor(
+    private readonly customerService: CustomerService,
+    private readonly authService: AuthService,
+  ) {}
 
- 
-  @Post('create-room')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  createRoom(@Body() roomDto: { name: string; price: number }) {
-    return this.customerService.createRoom(roomDto);
+  
+  @Post('signup')
+  async signup(@Body() dto: any) {
+    return await this.customerService.signUp(dto);
   }
 
-  @Get('rooms')
-  getRooms(@Query('price') price?: string) {
-    const parsedPrice = price ? parseInt(price) : undefined;
-    return this.customerService.getRoomsByExactPrice(parsedPrice);
-  }
-
-  @Get('rooms/:id')
-  getRoom(@Param('id', ParseIntPipe) id: number) {
-    return this.customerService.getRoomById(id);
+  
+  @Post('login')
+  async login(@Body() dto: any) {
+    return await this.authService.login(dto);
   }
 
   
   @Post('bookings')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  bookRoom(@Body() dto: CreateBookingDto) {
-    return this.customerService.createBooking(dto);
+  @UseGuards(AuthGuard('jwt'))
+  async bookRoom(@Body() dto: CreateBookingDto) {
+    return await this.customerService.createBooking(dto);
+  }
+
+  
+  @Get('rooms')
+  async getRooms(@Query('price') price?: string) {
+    const parsedPrice = price ? parseInt(price) : undefined;
+    return await this.customerService.getRoomsByExactPrice(parsedPrice);
   }
 
  
+  @Get('bookings')
+  @UseGuards(AuthGuard('jwt'))
+  async getAllBookings() {
+    return await this.customerService.getBookingHistory();
+  }
+
+ 
+  @Patch('bookings/:id')
+  @UseGuards(AuthGuard('jwt'))
+  async updateBooking(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateBookingDto) {
+    return await this.customerService.updateBooking(id, dto);
+  }
+
+  
   @Put('bookings/:id')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  editBooking(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateBookingDto,
-  ) {
-    return this.customerService.updateBooking(id, dto);
+  @UseGuards(AuthGuard('jwt'))
+  async replaceBooking(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateBookingDto) {
+    return await this.customerService.updateBooking(id, dto);
   }
 
 
   @Delete('bookings/:id')
-  cancelBooking(@Param('id', ParseIntPipe) id: number) {
-    return this.customerService.cancelBooking(id);
+  @UseGuards(AuthGuard('jwt'))
+  async cancelBooking(@Param('id', ParseIntPipe) id: number) {
+    return await this.customerService.cancelBooking(id);
   }
 
-
-  @Get('bookings')
-  bookingHistory() {
-    return this.customerService.getBookingHistory();
-  }
-
-  @Patch('bookings/:id/payment')
-  makePayment(@Param('id', ParseIntPipe) id: number) {
-    return this.customerService.makePayment(id);
-  }
-
-
+ 
   @Post('reviews')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  createReview(@Body() reviewDto: CreateReviewDto) {
-    return this.customerService.createReview(reviewDto);
-  }
-
-  
-  @Post('validation-check')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  validateField(@Body() dto: PartialBookingDto) {
-    return {
-      success: true,
-      message: 'Validation successful',
-      data: dto,
-    };
+  @UseGuards(AuthGuard('jwt'))
+  async createReview(@Body() reviewDto: CreateReviewDto) {
+    return await this.customerService.createReview(reviewDto);
   }
 }

@@ -19,19 +19,19 @@ export class Booking {
   @Column()
   phoneNumber!: string;
 
-  // Many-to-One: অনেকগুলো বুকিং একটি রুমের হতে পারে
+ 
   @ManyToOne(() => Room, (room) => room.bookings, { onDelete: 'CASCADE' })
   room!: Room;
 
-  // One-to-One: একটি বুকিংয়ের বিপরীতে একটি রিভিউ (Bi-directional)
+  
   @OneToOne(() => Review, (review) => review.booking)
   review!: Review;
 
-  @Column()
-  checkInDate!: string;
+ @Column({ type: 'date' })
+checkInDate!: Date;
 
   @Column()
-  checkOutDate!: string;
+  checkOutDate!: Date;
 
   @Column({ default: 'Booked' }) 
   status!: string; 

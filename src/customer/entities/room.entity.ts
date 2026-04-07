@@ -12,7 +12,7 @@ export class Room {
   @Column()
   price!: number;
 
-  // একটি রুমের অনেকগুলো বুকিং থাকতে পারে
+ 
   @OneToMany(() => Booking, (booking) => booking.room)
   bookings!: Booking[];
 }
