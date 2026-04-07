@@ -26,6 +26,7 @@ export class CustomerController {
   ) {}
 
   
+  
   @Post('signup')
   async signup(@Body() dto: any) {
     return await this.customerService.signUp(dto);
