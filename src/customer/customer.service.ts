@@ -50,64 +50,66 @@ export class CustomerService {
     return await this.roomRepository.find({ where: price ? { price } : {} });
   }
 
- 
-  async createBooking(dto: CreateBookingDto) {
-    const room = await this.roomRepository.findOne({ where: { id: dto.roomId } });
-    if (!room) throw new NotFoundException('Room not found');
+ async createBooking(dto: CreateBookingDto) {
+  const room = await this.roomRepository.findOne({ where: { id: dto.roomId } });
+  if (!room) throw new NotFoundException('Room not found');
 
-    const checkIn = this.parseDate(dto.checkInDate);
-    const checkOut = this.parseDate(dto.checkOutDate);
+  const checkIn = this.parseDate(dto.checkInDate);
+  const checkOut = this.parseDate(dto.checkOutDate);
 
-  
-    const overlapping = await this.bookingRepository
-      .createQueryBuilder('booking')
-      .where('booking.roomId = :roomId', { roomId: dto.roomId })
-      .andWhere(
-        '(booking.checkInDate < :checkOutDate AND booking.checkOutDate > :checkInDate)',
-        { checkInDate: checkIn, checkOutDate: checkOut }
-      )
-      .getOne();
+  const overlapping = await this.bookingRepository
+    .createQueryBuilder('booking')
+    .where('booking.roomId = :roomId', { roomId: dto.roomId })
+    .andWhere(
+      '(booking.checkInDate < :checkOutDate AND booking.checkOutDate > :checkInDate)',
+      { checkInDate: checkIn, checkOutDate: checkOut }
+    )
+    .getOne();
 
-    if (overlapping) {
-      throw new ConflictException('Sorry, this room is already booked for these dates.');
-    }
-
-    const booking = this.bookingRepository.create({
-      ...dto,
-      checkInDate: checkIn,
-      checkOutDate: checkOut,
-      room: room,
-      status: 'Booked'
-    });
-    
-    const savedBooking = await this.bookingRepository.save(booking);
-
-    try {
-      await this.mailerService.sendMail({
-        to: dto.email, 
-        subject: 'Booking Confirmation - Hotel UniConnect',
-        html: `
-          <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px;">
-            <h2 style="color: #4CAF50;">Booking Successful!</h2>
-            <p>Hello <b>${dto.customerName}</b>,</p>
-            <p>Your room booking has been confirmed at <b>Hotel Urban</b>.</p>
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Room ID</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.roomId}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-in Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkInDate}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-out Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkOutDate}</td></tr>
-            </table>
-            <p>We look forward to seeing you!</p>
-          </div>
-        `,
-      });
-      console.log('Confirmation email sent to:', dto.email);
-    } catch (error: any) {
-      console.error('Email sending failed:', error.message);
-    }
-
-    return savedBooking;
+  if (overlapping) {
+    throw new ConflictException('Sorry, this room is already booked for these dates.');
   }
 
+  const booking = this.bookingRepository.create({
+    ...dto,
+    checkInDate: checkIn,
+    checkOutDate: checkOut,
+    room: room,
+    status: 'Booked'
+  });
+  
+  const savedBooking = await this.bookingRepository.save(booking);
+
+  try {
+    await this.mailerService.sendMail({
+      to: dto.email, 
+      subject: 'Booking Confirmation - Hotel UniConnect',
+      html: `
+        <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px;">
+          <h2 style="color: #4CAF50;">Booking Successful!</h2>
+          <p>Hello <b>${dto.customerName}</b>,</p>
+          <p>Your room booking has been confirmed at <b>Hotel Urban</b>.</p>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Room ID</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.roomId}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-in Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkInDate}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-out Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkOutDate}</td></tr>
+          </table>
+          <p>We look forward to seeing you!</p>
+        </div>
+      `,
+    });
+    console.log('Confirmation email sent to:', dto.email);
+  } catch (error: any) {
+    console.error('Email sending failed:', error.message);
+  }
+
+  
+  const finalResponse: any = { ...savedBooking };
+
+  //delete finalResponse.room; 
+
+  return finalResponse;
+}
 
   async updateBooking(id: number, dto: any) {
     const booking = await this.bookingRepository.findOne({ 
@@ -118,7 +120,7 @@ export class CustomerService {
 
     if (dto.roomId) {
       const room = await this.roomRepository.findOne({ where: { id: dto.roomId } });
-      if (!room) throw new NotFoundException('Target room not found');
+      if (!room) throw new NotFoundException(' Room not found');
       booking.room = room;
     }
 
@@ -147,7 +149,39 @@ export class CustomerService {
     if (dto.checkOutDate) updateData.checkOutDate = checkOut;
 
     Object.assign(booking, updateData);
-    return await this.bookingRepository.save(booking);
+    const updatedBooking = await this.bookingRepository.save(booking);
+     return {
+      customerName: updatedBooking.customerName,
+      email: updatedBooking.email,
+      gender: updatedBooking.gender,
+      phoneNumber: updatedBooking.phoneNumber,
+      checkInDate: updatedBooking.checkInDate,
+      checkOutDate: updatedBooking.checkOutDate,
+      status: updatedBooking.status,
+      //room: updatedBooking.room, 
+      message: 'Update successful!'
+   
+    };
+  }
+
+  
+  async getRelationTest(bookingId: number) {
+    const booking = await this.bookingRepository.findOne({
+      where: { id: bookingId },
+      relations: ['room'] 
+    });
+
+    if (!booking) throw new NotFoundException('বুকিং পাওয়া যায়নি');
+
+    
+    return {
+      bookingId: booking.id,
+      customerName: booking.customerName,
+      roomId: booking.room ? booking.room.id : 'No Room',
+      roomName: booking.room ? booking.room.name : 'N/A',
+      //message: 'Relation success!',
+      price: booking.room ? booking.room.price : 0
+    };
   }
 
   async cancelBooking(id: number) {
@@ -161,6 +195,9 @@ export class CustomerService {
   async getBookingHistory() {
     return await this.bookingRepository.find({ relations: ['room'] });
   }
+
+
+  
 
   async createReview(dto: any) {
     const booking = await this.bookingRepository.findOne({ 

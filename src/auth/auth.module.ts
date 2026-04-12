@@ -14,7 +14,7 @@ import { CustomerModule } from '../customer/customer.module';
    
     JwtModule.register({
       secret: 'secretKey', 
-      signOptions: { expiresIn: '7h' },
+      signOptions: { expiresIn: '10h' },
     }),
     
     forwardRef(() => CustomerModule),

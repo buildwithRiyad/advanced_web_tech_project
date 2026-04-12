@@ -80,6 +80,12 @@ export class CustomerController {
     return await this.customerService.cancelBooking(id);
   }
 
+  @Get('test-relation/:id')
+  testRelation(@Param('id') id: number) {
+    return this.customerService.getRelationTest(id);
+  }
+
+  
  
   @Post('reviews')
   @UseGuards(AuthGuard('jwt'))
