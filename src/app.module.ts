@@ -6,7 +6,6 @@ import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
-    
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: 'localhost',
@@ -18,24 +17,23 @@ import { AuthModule } from './auth/auth.module';
       synchronize: true, 
     }),
 
-   
     MailerModule.forRoot({
       transport: {
         host: 'smtp.gmail.com',
         port: 465,
-        secure: true, 
+        secure: true,
         auth: {
-          user: 'shakibfakir6796@@gmail.com', 
-          pass: 'fuwm fyvc jdfz dydm', 
+          user: 'shakibfakir6796@gmail.com', // Ekhane double @@ chilo, seta thik kore diyechi
+          pass: 'fuwm fyvc jdfz dydm',
         },
       },
       defaults: {
-        from: '"Hotel Management" <your-email@gmail.com>', 
+        from: '"Hotel Management" <shakibfakir6796@gmail.com>', // "your-email" er jaygay apnar email ti boshiye diyechi
       },
     }),
 
     CustomerModule,
-    AuthModule, 
+    AuthModule,
   ],
 })
 export class AppModule {}

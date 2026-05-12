@@ -197,6 +197,12 @@ export class CustomerService {
   }
 
 
+
+async createRoom(dto: any) {
+  const newRoom = this.roomRepository.create(dto); 
+  return await this.roomRepository.save(newRoom);
+}
+
   
 
   async createReview(dto: any) {

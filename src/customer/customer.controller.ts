@@ -85,6 +85,10 @@ export class CustomerController {
     return this.customerService.getRelationTest(id);
   }
 
+  @Post('addroom')
+async createRoom(@Body() dto: any) {
+  return await this.customerService.createRoom(dto); // নিশ্চিত করুন আপনার Service এ এই ফাংশনটি আছে
+}
   
  
   @Post('reviews')
