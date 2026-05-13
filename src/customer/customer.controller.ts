@@ -90,6 +90,13 @@ async createRoom(@Body() dto: any) {
   return await this.customerService.createRoom(dto); // নিশ্চিত করুন আপনার Service এ এই ফাংশনটি আছে
 }
   
+
+
+@Get('bookings/:id')
+@UseGuards(AuthGuard('jwt'))
+async getBookingById(@Param('id', ParseIntPipe) id: number) {
+  return await this.customerService.getBookingById(id);
+}
  
   @Post('reviews')
   @UseGuards(AuthGuard('jwt'))

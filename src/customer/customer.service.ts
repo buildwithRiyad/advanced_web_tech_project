@@ -6,7 +6,8 @@ import { Room } from './entities/room.entity';
 import { Review } from './entities/review.entity';
 import { User } from './entities/user.entity'; 
 import { CreateBookingDto } from './dto/create-booking.dto';
-import { MailerService } from '@nestjs-modules/mailer'; // মেইলার ইমপোর্ট
+import { MailerService } from '@nestjs-modules/mailer';
+import { PusherService } from '../pusher.service'; // PusherService ইমপোর্ট করুন
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -16,16 +17,15 @@ export class CustomerService {
     @InjectRepository(Room) private readonly roomRepository: Repository<Room>,
     @InjectRepository(Review) private readonly reviewRepository: Repository<Review>,
     @InjectRepository(User) private readonly userRepository: Repository<User>,
-    private readonly mailerService: MailerService, 
+    private readonly mailerService: MailerService,
+    private readonly pusherService: PusherService, // PusherService ইনজেক্ট করা হলো
   ) {}
 
- 
   private parseDate(dateStr: string): Date {
     const [day, month, year] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day);
   }
 
-  
   async signUp(dto: any) {
     const { username, password } = dto;
     const existingUser = await this.userRepository.findOne({ where: { username } });
@@ -45,71 +45,69 @@ export class CustomerService {
     return savedUser;
   }
 
- 
   async getRoomsByExactPrice(price?: number) {
     return await this.roomRepository.find({ where: price ? { price } : {} });
   }
 
- async createBooking(dto: CreateBookingDto) {
-  const room = await this.roomRepository.findOne({ where: { id: dto.roomId } });
-  if (!room) throw new NotFoundException('Room not found');
+  async createBooking(dto: CreateBookingDto) {
+    const room = await this.roomRepository.findOne({ where: { id: dto.roomId } });
+    if (!room) throw new NotFoundException('Room not found');
 
-  const checkIn = this.parseDate(dto.checkInDate);
-  const checkOut = this.parseDate(dto.checkOutDate);
+    const checkIn = this.parseDate(dto.checkInDate);
+    const checkOut = this.parseDate(dto.checkOutDate);
 
-  const overlapping = await this.bookingRepository
-    .createQueryBuilder('booking')
-    .where('booking.roomId = :roomId', { roomId: dto.roomId })
-    .andWhere(
-      '(booking.checkInDate < :checkOutDate AND booking.checkOutDate > :checkInDate)',
-      { checkInDate: checkIn, checkOutDate: checkOut }
-    )
-    .getOne();
+    const overlapping = await this.bookingRepository
+      .createQueryBuilder('booking')
+      .where('booking.roomId = :roomId', { roomId: dto.roomId })
+      .andWhere(
+        '(booking.checkInDate < :checkOutDate AND booking.checkOutDate > :checkInDate)',
+        { checkInDate: checkIn, checkOutDate: checkOut }
+      )
+      .getOne();
 
-  if (overlapping) {
-    throw new ConflictException('Sorry, this room is already booked for these dates.');
-  }
+    if (overlapping) {
+      throw new ConflictException('Sorry, this room is already booked for these dates.');
+    }
 
-  const booking = this.bookingRepository.create({
-    ...dto,
-    checkInDate: checkIn,
-    checkOutDate: checkOut,
-    room: room,
-    status: 'Booked'
-  });
-  
-  const savedBooking = await this.bookingRepository.save(booking);
-
-  try {
-    await this.mailerService.sendMail({
-      to: dto.email, 
-      subject: 'Booking Confirmation - Hotel UniConnect',
-      html: `
-        <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px;">
-          <h2 style="color: #4CAF50;">Booking Successful!</h2>
-          <p>Hello <b>${dto.customerName}</b>,</p>
-          <p>Your room booking has been confirmed at <b>Hotel Urban</b>.</p>
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Room ID</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.roomId}</td></tr>
-            <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-in Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkInDate}</td></tr>
-            <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-out Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkOutDate}</td></tr>
-          </table>
-          <p>We look forward to seeing you!</p>
-        </div>
-      `,
+    const booking = this.bookingRepository.create({
+      ...dto,
+      checkInDate: checkIn,
+      checkOutDate: checkOut,
+      room: room,
+      status: 'Booked'
     });
-    console.log('Confirmation email sent to:', dto.email);
-  } catch (error: any) {
-    console.error('Email sending failed:', error.message);
+    
+    const savedBooking = await this.bookingRepository.save(booking);
+
+    // --- Pusher Trigger: নতুন বুকিং ---
+    await this.pusherService.trigger('hotel-royal-channel', 'booking-update', {
+      message: `A new booking has been made for Room #${dto.roomId}`,
+      customer: dto.customerName
+    });
+
+    try {
+      await this.mailerService.sendMail({
+        to: dto.email, 
+        subject: 'Booking Confirmation - Hotel UniConnect',
+        html: `
+          <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px;">
+            <h2 style="color: #4CAF50;">Booking Successful!</h2>
+            <p>Hello <b>${dto.customerName}</b>,</p>
+            <p>Your room booking has been confirmed at <b>Hotel Urban</b>.</p>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Room ID</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.roomId}</td></tr>
+              <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-in Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkInDate}</td></tr>
+              <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-out Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkOutDate}</td></tr>
+            </table>
+          </div>
+        `,
+      });
+    } catch (error: any) {
+      console.error('Email sending failed:', error.message);
+    }
+
+    return savedBooking;
   }
-
-  
-  const finalResponse: any = { ...savedBooking };
-
-  //delete finalResponse.room; 
-
-  return finalResponse;
-}
 
   async updateBooking(id: number, dto: any) {
     const booking = await this.bookingRepository.findOne({ 
@@ -150,37 +148,16 @@ export class CustomerService {
 
     Object.assign(booking, updateData);
     const updatedBooking = await this.bookingRepository.save(booking);
-     return {
-      customerName: updatedBooking.customerName,
-      email: updatedBooking.email,
-      gender: updatedBooking.gender,
-      phoneNumber: updatedBooking.phoneNumber,
-      checkInDate: updatedBooking.checkInDate,
-      checkOutDate: updatedBooking.checkOutDate,
-      status: updatedBooking.status,
-      //room: updatedBooking.room, 
-      message: 'Update successful!'
-   
-    };
-  }
 
-  
-  async getRelationTest(bookingId: number) {
-    const booking = await this.bookingRepository.findOne({
-      where: { id: bookingId },
-      relations: ['room'] 
+    // --- Pusher Trigger: বুকিং আপডেট ---
+    await this.pusherService.trigger('hotel-royal-channel', 'booking-update', {
+      message: `Booking #${id} has been modified.`,
+      status: updatedBooking.status
     });
 
-    if (!booking) throw new NotFoundException('বুকিং পাওয়া যায়নি');
-
-    
     return {
-      bookingId: booking.id,
-      customerName: booking.customerName,
-      roomId: booking.room ? booking.room.id : 'No Room',
-      roomName: booking.room ? booking.room.name : 'N/A',
-      //message: 'Relation success!',
-      price: booking.room ? booking.room.price : 0
+      ...updatedBooking,
+      message: 'Update successful!'
     };
   }
 
@@ -189,21 +166,15 @@ export class CustomerService {
     if (!booking) throw new NotFoundException('Booking not found');
     
     await this.bookingRepository.delete(id);
+
+    // --- Pusher Trigger: বুকিং ডিলিট/ক্যান্সেল ---
+    await this.pusherService.trigger('hotel-royal-channel', 'booking-update', {
+      message: `Booking #${id} has been cancelled.`,
+      type: 'CANCELLED'
+    });
+
     return { message: 'Booking cancelled successfully' };
   }
-
-  async getBookingHistory() {
-    return await this.bookingRepository.find({ relations: ['room'] });
-  }
-
-
-
-async createRoom(dto: any) {
-  const newRoom = this.roomRepository.create(dto); 
-  return await this.roomRepository.save(newRoom);
-}
-
-  
 
   async createReview(dto: any) {
     const booking = await this.bookingRepository.findOne({ 
@@ -215,6 +186,48 @@ async createRoom(dto: any) {
     if (booking.review) throw new ConflictException('This booking has already been reviewed');
     
     const review = this.reviewRepository.create({ ...dto, booking });
-    return await this.reviewRepository.save(review);
+    const savedReview = await this.reviewRepository.save(review);
+
+    // --- Pusher Trigger: রিভিউ নোটিফিকেশন ---
+    await this.pusherService.trigger('hotel-royal-channel', 'booking-update', {
+      message: `A new review has been posted for Booking #${dto.bookingId}`,
+      rating: dto.rating
+    });
+
+    return savedReview;
+  }
+
+  // বাকি মেথডগুলো অপরিবর্তিত থাকবে
+  async getRelationTest(bookingId: number) {
+    const booking = await this.bookingRepository.findOne({
+      where: { id: bookingId },
+      relations: ['room'] 
+    });
+    if (!booking) throw new NotFoundException('বুকিং পাওয়া যায়নি');
+    return {
+      bookingId: booking.id,
+      customerName: booking.customerName,
+      roomId: booking.room ? booking.room.id : 'No Room',
+      roomName: booking.room ? booking.room.name : 'N/A',
+      price: booking.room ? booking.room.price : 0
+    };
+  }
+
+  async getBookingHistory() {
+    return await this.bookingRepository.find({ relations: ['room'] });
+  }
+
+  async createRoom(dto: any) {
+    const newRoom = this.roomRepository.create(dto); 
+    return await this.roomRepository.save(newRoom);
+  }
+
+  async getBookingById(id: number) {
+    const booking = await this.bookingRepository.findOne({ 
+      where: { id },
+      relations: ['room'] 
+    });
+    if (!booking) throw new NotFoundException(`Booking with ID ${id} not found`);
+    return booking;
   }
 }
