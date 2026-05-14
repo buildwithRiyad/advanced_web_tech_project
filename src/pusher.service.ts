@@ -1,11 +1,10 @@
-// backend/src/pusher.service.ts
 import { Injectable } from '@nestjs/common';
-// import * as Pusher from 'pusher'; <-- এটি পরিবর্তন করুন
-const Pusher = require('pusher'); // এটি ব্যবহার করে দেখুন
+// @ts-ignore
+import Pusher from 'pusher'; // এখানে * as Pusher এর বদলে শুধু Pusher লিখো
 
 @Injectable()
 export class PusherService {
-  private pusher: any; // Type 'any' দিন যাতে এরর না দেখায়
+  private pusher: any;
 
   constructor() {
     this.pusher = new Pusher({
@@ -18,6 +17,11 @@ export class PusherService {
   }
 
   async trigger(channel: string, event: string, data: any) {
-    await this.pusher.trigger(channel, event, data);
+    try {
+      await this.pusher.trigger(channel, event, data);
+      console.log(`🚀 Pusher: Event Sent - ${event} on ${channel}`);
+    } catch (error: any) {
+      console.error('❌ Pusher Trigger Error:', error.message);
+    }
   }
 }

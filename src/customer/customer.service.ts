@@ -7,7 +7,7 @@ import { Review } from './entities/review.entity';
 import { User } from './entities/user.entity'; 
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { MailerService } from '@nestjs-modules/mailer';
-import { PusherService } from '../pusher.service'; // PusherService ইমপোর্ট করুন
+import { PusherService } from '../pusher.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -18,7 +18,7 @@ export class CustomerService {
     @InjectRepository(Review) private readonly reviewRepository: Repository<Review>,
     @InjectRepository(User) private readonly userRepository: Repository<User>,
     private readonly mailerService: MailerService,
-    private readonly pusherService: PusherService, // PusherService ইনজেক্ট করা হলো
+    private readonly pusherService: PusherService,
   ) {}
 
   private parseDate(dateStr: string): Date {
@@ -26,6 +26,36 @@ export class CustomerService {
     return new Date(year, month - 1, day);
   }
 
+  // --- Profile Update Method ---
+  async updateProfile(dto: { currentUsername: string, newUsername: string, phone?: string }) {
+    const user = await this.userRepository.findOne({ where: { username: dto.currentUsername } });
+
+    if (!user) {
+      throw new NotFoundException(`User with username ${dto.currentUsername} not found!`);
+    }
+
+    if (dto.newUsername !== dto.currentUsername) {
+      const existing = await this.userRepository.findOne({ where: { username: dto.newUsername } });
+      if (existing) throw new ConflictException('New username is already taken!');
+    }
+
+    user.username = dto.newUsername;
+    if (dto.phone) {
+      (user as any).phone = dto.phone; 
+    }
+
+    await this.userRepository.save(user);
+
+    return {
+      message: 'Profile updated successfully',
+      updatedUser: {
+        username: user.username,
+        phone: (user as any).phone
+      }
+    };
+  }
+
+  // --- SignUp Method ---
   async signUp(dto: any) {
     const { username, password } = dto;
     const existingUser = await this.userRepository.findOne({ where: { username } });
@@ -45,10 +75,7 @@ export class CustomerService {
     return savedUser;
   }
 
-  async getRoomsByExactPrice(price?: number) {
-    return await this.roomRepository.find({ where: price ? { price } : {} });
-  }
-
+  // --- Booking Methods ---
   async createBooking(dto: CreateBookingDto) {
     const room = await this.roomRepository.findOne({ where: { id: dto.roomId } });
     if (!room) throw new NotFoundException('Room not found');
@@ -59,175 +86,68 @@ export class CustomerService {
     const overlapping = await this.bookingRepository
       .createQueryBuilder('booking')
       .where('booking.roomId = :roomId', { roomId: dto.roomId })
-      .andWhere(
-        '(booking.checkInDate < :checkOutDate AND booking.checkOutDate > :checkInDate)',
-        { checkInDate: checkIn, checkOutDate: checkOut }
-      )
+      .andWhere('(booking.checkInDate < :checkOutDate AND booking.checkOutDate > :checkInDate)', { checkInDate: checkIn, checkOutDate: checkOut })
       .getOne();
 
-    if (overlapping) {
-      throw new ConflictException('Sorry, this room is already booked for these dates.');
-    }
+    if (overlapping) throw new ConflictException('Room already booked for these dates.');
 
-    const booking = this.bookingRepository.create({
-      ...dto,
-      checkInDate: checkIn,
-      checkOutDate: checkOut,
-      room: room,
-      status: 'Booked'
+    const booking = this.bookingRepository.create({ 
+        ...dto, 
+        checkInDate: checkIn, 
+        checkOutDate: checkOut, 
+        room, 
+        status: 'Booked' 
     });
-    
+
     const savedBooking = await this.bookingRepository.save(booking);
 
-    // --- Pusher Trigger: নতুন বুকিং ---
-    await this.pusherService.trigger('hotel-royal-channel', 'booking-update', {
-      message: `A new booking has been made for Room #${dto.roomId}`,
-      customer: dto.customerName
-    });
-
+    // --- PUSHER UPDATED LOGIC ---
     try {
-      await this.mailerService.sendMail({
-        to: dto.email, 
-        subject: 'Booking Confirmation - Hotel UniConnect',
-        html: `
-          <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px;">
-            <h2 style="color: #4CAF50;">Booking Successful!</h2>
-            <p>Hello <b>${dto.customerName}</b>,</p>
-            <p>Your room booking has been confirmed at <b>Hotel Urban</b>.</p>
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Room ID</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.roomId}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-in Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkInDate}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>Check-out Date</b></td><td style="padding: 8px; border: 1px solid #ddd;">${dto.checkOutDate}</td></tr>
-            </table>
-          </div>
-        `,
-      });
-    } catch (error: any) {
-      console.error('Email sending failed:', error.message);
+        await this.pusherService.trigger('hotel-royal-channel', 'booking-update', { 
+            message: `New booking for Room #${dto.roomId}`, 
+            customer: dto.customerName,
+            price: room.price,
+            time: new Date().toLocaleTimeString()
+        });
+        console.log('✅ Pusher notification sent successfully');
+    } catch (error) {
+        console.error('❌ Pusher notification failed:', error);
+        // বুকিং সেভ হয়ে গেছে, তাই এখানে এরর থ্রো করব না যাতে ইউজার ইন্টারাপ্ট না হয়
     }
 
     return savedBooking;
   }
 
+  async getBookingHistory() { return await this.bookingRepository.find({ relations: ['room'] }); }
+
+  async getBookingById(id: number) {
+    const booking = await this.bookingRepository.findOne({ where: { id }, relations: ['room'] });
+    if (!booking) throw new NotFoundException(`Booking ID ${id} not found`);
+    return booking;
+  }
+
   async updateBooking(id: number, dto: any) {
-    const booking = await this.bookingRepository.findOne({ 
-      where: { id },
-      relations: ['room'] 
-    });
-    if (!booking) throw new NotFoundException('Booking not found');
-
-    if (dto.roomId) {
-      const room = await this.roomRepository.findOne({ where: { id: dto.roomId } });
-      if (!room) throw new NotFoundException(' Room not found');
-      booking.room = room;
-    }
-
-    const checkIn = dto.checkInDate ? this.parseDate(dto.checkInDate) : booking.checkInDate;
-    const checkOut = dto.checkOutDate ? this.parseDate(dto.checkOutDate) : booking.checkOutDate;
-    const roomId = dto.roomId || (booking.room ? booking.room.id : null);
-
-    if (roomId) {
-      const overlapping = await this.bookingRepository
-        .createQueryBuilder('booking')
-        .where('booking.roomId = :roomId', { roomId })
-        .andWhere('booking.id != :id', { id }) 
-        .andWhere(
-          '(booking.checkInDate < :checkOutDate AND booking.checkOutDate > :checkInDate)',
-          { checkInDate: checkIn, checkOutDate: checkOut }
-        )
-        .getOne();
-
-      if (overlapping) {
-        throw new ConflictException('Conflict: Room already booked for these dates.');
-      }
-    }
-
-    const { roomId: _, ...updateData } = dto;
-    if (dto.checkInDate) updateData.checkInDate = checkIn;
-    if (dto.checkOutDate) updateData.checkOutDate = checkOut;
-
-    Object.assign(booking, updateData);
-    const updatedBooking = await this.bookingRepository.save(booking);
-
-    // --- Pusher Trigger: বুকিং আপডেট ---
-    await this.pusherService.trigger('hotel-royal-channel', 'booking-update', {
-      message: `Booking #${id} has been modified.`,
-      status: updatedBooking.status
-    });
-
-    return {
-      ...updatedBooking,
-      message: 'Update successful!'
-    };
+    const booking = await this.getBookingById(id);
+    Object.assign(booking, dto);
+    return await this.bookingRepository.save(booking);
   }
 
   async cancelBooking(id: number) {
-    const booking = await this.bookingRepository.findOne({ where: { id } });
-    if (!booking) throw new NotFoundException('Booking not found');
-    
-    await this.bookingRepository.delete(id);
-
-    // --- Pusher Trigger: বুকিং ডিলিট/ক্যান্সেল ---
-    await this.pusherService.trigger('hotel-royal-channel', 'booking-update', {
-      message: `Booking #${id} has been cancelled.`,
-      type: 'CANCELLED'
-    });
-
+    const result = await this.bookingRepository.delete(id);
+    if (result.affected === 0) throw new NotFoundException('Booking not found');
     return { message: 'Booking cancelled successfully' };
   }
 
   async createReview(dto: any) {
-    const booking = await this.bookingRepository.findOne({ 
-      where: { id: dto.bookingId }, 
-      relations: ['review'] 
-    });
-    
-    if (!booking) throw new NotFoundException('Booking not found');
-    if (booking.review) throw new ConflictException('This booking has already been reviewed');
-    
-    const review = this.reviewRepository.create({ ...dto, booking });
-    const savedReview = await this.reviewRepository.save(review);
-
-    // --- Pusher Trigger: রিভিউ নোটিফিকেশন ---
-    await this.pusherService.trigger('hotel-royal-channel', 'booking-update', {
-      message: `A new review has been posted for Booking #${dto.bookingId}`,
-      rating: dto.rating
-    });
-
-    return savedReview;
+    const review = this.reviewRepository.create(dto);
+    return await this.reviewRepository.save(review);
   }
 
-  // বাকি মেথডগুলো অপরিবর্তিত থাকবে
-  async getRelationTest(bookingId: number) {
-    const booking = await this.bookingRepository.findOne({
-      where: { id: bookingId },
-      relations: ['room'] 
-    });
-    if (!booking) throw new NotFoundException('বুকিং পাওয়া যায়নি');
-    return {
-      bookingId: booking.id,
-      customerName: booking.customerName,
-      roomId: booking.room ? booking.room.id : 'No Room',
-      roomName: booking.room ? booking.room.name : 'N/A',
-      price: booking.room ? booking.room.price : 0
-    };
-  }
+  async getRoomsByExactPrice(price?: number) { return await this.roomRepository.find({ where: price ? { price } : {} }); }
 
-  async getBookingHistory() {
-    return await this.bookingRepository.find({ relations: ['room'] });
-  }
+  async createRoom(dto: any) { return await this.roomRepository.save(this.roomRepository.create(dto)); }
 
-  async createRoom(dto: any) {
-    const newRoom = this.roomRepository.create(dto); 
-    return await this.roomRepository.save(newRoom);
-  }
-
-  async getBookingById(id: number) {
-    const booking = await this.bookingRepository.findOne({ 
-      where: { id },
-      relations: ['room'] 
-    });
-    if (!booking) throw new NotFoundException(`Booking with ID ${id} not found`);
-    return booking;
+  async getRelationTest(id: number) {
+    return await this.userRepository.findOne({ where: { id } });
   }
 }
