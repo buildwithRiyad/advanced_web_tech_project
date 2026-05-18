@@ -9,6 +9,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { MailerService } from '@nestjs-modules/mailer';
 import { PusherService } from '../pusher.service';
 import * as bcrypt from 'bcrypt';
+import axios from 'axios'; // 🌟 Pusher Beams API হিট করার জন্য Axios ইম্পোর্ট করা হয়েছে
 
 @Injectable()
 export class CustomerService {
@@ -26,7 +27,53 @@ export class CustomerService {
     return new Date(year, month - 1, day);
   }
 
-  // --- Profile Update Method ---
+  // 🚀 Pusher Beams API ফায়ারিং মেথড
+  private async sendBeamsNotification(title: string, body: string) {
+    const instanceId = '14a93161-ec71-4fc7-8525-b8deae1f33be'; // 🌟 আপনার অরিজিনাল বিমস আইডি
+    const secretKey = '1DDFAD21BFBD042E1C56227D55F04241D99816D53606382605A382B47EF356BC'; // 🌟 আপনার অরিজিনাল সিক্রেট কি
+
+    try {
+      await axios.post(
+        `https://${instanceId}.pushnotifications.pusher.com/publish_api/v1/instances/${instanceId}/publishes`,
+        {
+          interests: ['global'],
+          web: {
+            notification: {
+              title: title,
+              body: body,
+              deep_link: 'http://localhost:3001/my-bookings',
+              icon: 'https://pusher.com/static/images/logo.png',
+            },
+          },
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${secretKey}`,
+          },
+        }
+      );
+      console.log(`✅ Pusher Beams: "${title}" নোটিফিকেশন সফলভাবে পাঠানো হয়েছে!`);
+    } catch (error: any) {
+      console.error('❌ Pusher Beams Error:', error.response?.data || error.message);
+    }
+  }
+
+  // --- Profile Methods ---
+  async getProfile(username: string) {
+    const user = await this.userRepository.findOne({ where: { username } });
+    if (!user) {
+      throw new NotFoundException(`User with username ${username} not found!`);
+    }
+    
+    return {
+      username: user.username,
+      email: (user as any).email || `${user.username}@gmail.com`, 
+      phone: (user as any).phone || "Not Set",
+      role: user.role || 'customer'
+    };
+  }
+
   async updateProfile(dto: { currentUsername: string, newUsername: string, phone?: string }) {
     const user = await this.userRepository.findOne({ where: { username: dto.currentUsername } });
 
@@ -101,18 +148,17 @@ export class CustomerService {
 
     const savedBooking = await this.bookingRepository.save(booking);
 
-    // --- PUSHER UPDATED LOGIC ---
+    // 🔔 Pusher Beams লাইভ নোটিফিকেশন ফায়ার (বুকিং সাকসেস - সম্পূর্ণ ফিক্সড এবং সেফ করা হয়েছে)
     try {
-        await this.pusherService.trigger('hotel-royal-channel', 'booking-update', { 
-            message: `New booking for Room #${dto.roomId}`, 
-            customer: dto.customerName,
-            price: room.price,
-            time: new Date().toLocaleTimeString()
-        });
-        console.log('✅ Pusher notification sent successfully');
-    } catch (error) {
-        console.error('❌ Pusher notification failed:', error);
-        // বুকিং সেভ হয়ে গেছে, তাই এখানে এরর থ্রো করব না যাতে ইউজার ইন্টারাপ্ট না হয়
+      const roomName = room.name || `Room #${dto.roomId}`;
+      const customer = (dto as any).customerName || dto.email || 'A Guest';
+      
+      await this.sendBeamsNotification(
+        'New Booking Confirmed! 🏨',
+        `${roomName} has been booked successfully by ${customer}.`
+      );
+    } catch (pushError) {
+      console.error('⚠️ Pusher Beams bypassed in createBooking:', pushError);
     }
 
     return savedBooking;
@@ -133,8 +179,24 @@ export class CustomerService {
   }
 
   async cancelBooking(id: number) {
+    const booking = await this.bookingRepository.findOne({ where: { id }, relations: ['room'] });
+    if (!booking) throw new NotFoundException('Booking not found');
+    const roomId = booking.room?.id || id;
+    const roomName = booking.room?.name || `Room #${roomId}`;
+
     const result = await this.bookingRepository.delete(id);
     if (result.affected === 0) throw new NotFoundException('Booking not found');
+
+    // 🔔 Pusher Beams লাইভ নোটিফিকেশন ফায়ার (বুকিং ক্যানসেল)
+    try {
+      await this.sendBeamsNotification(
+        'Booking Cancelled! ❌',
+        `The reservation for ${roomName} has been successfully cancelled.`
+      );
+    } catch (pushError) {
+      console.error('⚠️ Pusher Beams bypassed in cancelBooking:', pushError);
+    }
+
     return { message: 'Booking cancelled successfully' };
   }
 
